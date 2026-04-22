@@ -1,0 +1,95 @@
+name: Build mod
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed by softprops/action-gh-release on tag pushes
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Read metadata from modinfo.json
+        id: meta
+        run: |
+          MOD_VERSION=$(jq -r '.version' modinfo.json)
+          GAME_VERSION=$(jq -r '.dependencies.game' modinfo.json)
+          COMMONLIB_VERSION=$(jq -r '.dependencies.commonlib' modinfo.json)
+          echo "mod_version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "game_version=$GAME_VERSION" >> "$GITHUB_OUTPUT"
+          echo "commonlib_version=$COMMONLIB_VERSION" >> "$GITHUB_OUTPUT"
+          echo "zip_name=PlayerCorpse_VS${GAME_VERSION}_net10_v${MOD_VERSION}.zip" >> "$GITHUB_OUTPUT"
+
+      # VS ships a headless server tarball that includes VintagestoryAPI.dll,
+      # VintagestoryLib.dll, Mods/VS*.dll, and Lib/*.dll — everything the csproj
+      # references. If the URL pattern changes in a future VS release, update
+      # the base URL here.
+      - name: Download Vintage Story API
+        env:
+          GAME_VERSION: ${{ steps.meta.outputs.game_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/vs"
+          URL="https://cdn.vintagestory.at/gamefiles/stable/vs_server_${GAME_VERSION}.tar.gz"
+          echo "Downloading $URL"
+          curl -fsSL "$URL" | tar -xz -C "$HOME/vs"
+          test -f "$HOME/vs/VintagestoryAPI.dll" || { echo "VintagestoryAPI.dll not found in extracted archive"; ls -la "$HOME/vs"; exit 1; }
+          echo "VINTAGE_STORY=$HOME/vs" >> "$GITHUB_ENV"
+
+      # CommonLib is resolved via the public moddb API. We match by the version
+      # declared in modinfo.json (dependencies.commonlib) so the build-time
+      # reference stays in sync with the declared runtime dependency.
+      - name: Download CommonLib
+        env:
+          COMMONLIB_VERSION: ${{ steps.meta.outputs.commonlib_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p lib
+          MOD_JSON=$(curl -fsSL "https://mods.vintagestory.at/api/mod/commonlib")
+          FILE_URL=$(echo "$MOD_JSON" | jq -r --arg v "$COMMONLIB_VERSION" '.mod.releases[] | select(.modversion == $v) | .mainfile' | head -n1)
+          if [ -z "$FILE_URL" ] || [ "$FILE_URL" = "null" ]; then
+            echo "CommonLib $COMMONLIB_VERSION not found on moddb. Available versions:"
+            echo "$MOD_JSON" | jq -r '.mod.releases[].modversion'
+            exit 1
+          fi
+          echo "Downloading $FILE_URL"
+          curl -fsSL -o commonlib.zip "$FILE_URL"
+          unzip -p commonlib.zip CommonLib.dll > lib/CommonLib.dll
+          test -s lib/CommonLib.dll
+
+      - name: Build
+        run: dotnet build -c Release --nologo
+
+      - name: Package mod zip
+        env:
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
+        run: |
+          set -euo pipefail
+          cd bin/Release/Mods/PlayerCorpse
+          # Exclude .pdb from release zip to match upstream packaging
+          zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" . -x '*.pdb'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l "$ZIP_NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.zip_name }}
+          path: ${{ steps.meta.outputs.zip_name }}
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.meta.outputs.zip_name }}
+          generate_release_notes: true
