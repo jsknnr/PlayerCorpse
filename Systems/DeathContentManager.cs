@@ -49,52 +49,91 @@ namespace PlayerCorpse.Systems
                 return;
             }
 
-            var corpseEntity = CreateCorpseEntity(byPlayer);
-            if (corpseEntity.Inventory != null && !corpseEntity.Inventory.Empty)
+            EntityPlayerCorpse? corpseEntity = null;
+            try
             {
-                if (Core.Config.CreateWaypoint == Config.CreateWaypointMode.Always)
+                corpseEntity = CreateCorpseEntity(byPlayer);
+                if (corpseEntity.Inventory != null && !corpseEntity.Inventory.Empty)
                 {
-                    CreateDeathPoint(byPlayer.Entity, corpseEntity);
+                    if (Core.Config.CreateWaypoint == Config.CreateWaypointMode.Always)
+                    {
+                        CreateDeathPoint(byPlayer.Entity, corpseEntity);
+                    }
+
+                    // Save content for /returnthings
+                    if (Core.Config.MaxDeathContentSavedPerPlayer > 0)
+                    {
+                        SaveDeathContent(corpseEntity.Inventory, byPlayer);
+                    }
+
+                    // Spawn corpse
+                    if (Core.Config.CreateCorpse)
+                    {
+                        _sapi.World.SpawnEntity(corpseEntity);
+
+                        string message = string.Format(
+                            "Created {0} at {1}, id {2}",
+                            corpseEntity.GetName(),
+                            corpseEntity.Pos.XYZ.RelativePos(_sapi),
+                            corpseEntity.EntityId);
+
+                        Mod.Logger.Notification(message);
+                        if (Core.Config.DebugMode)
+                        {
+                            _sapi.BroadcastMessage(message);
+                        }
+                    }
+
+                    // Or drop all if corpse creations is disabled
+                    else
+                    {
+                        corpseEntity.Inventory.DropAll(corpseEntity.Pos.XYZ);
+                    }
                 }
-
-                // Save content for /returnthings
-                if (Core.Config.MaxDeathContentSavedPerPlayer > 0)
+                else
                 {
-                    SaveDeathContent(corpseEntity.Inventory, byPlayer);
-                }
-
-                // Spawn corpse
-                if (Core.Config.CreateCorpse)
-                {
-                    _sapi.World.SpawnEntity(corpseEntity);
-
-                    string message = string.Format(
-                        "Created {0} at {1}, id {2}",
-                        corpseEntity.GetName(),
-                        corpseEntity.Pos.XYZ.RelativePos(_sapi),
-                        corpseEntity.EntityId);
-
+                    string message = $"Inventory is empty, {corpseEntity.OwnerName}'s corpse not created";
                     Mod.Logger.Notification(message);
                     if (Core.Config.DebugMode)
                     {
                         _sapi.BroadcastMessage(message);
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                Mod.Logger.Error(
+                    "Corpse creation failed for {0}, falling back to dropping collected items at death location. Exception: {1}",
+                    byPlayer.PlayerName, ex);
+                HandleCreationFailure(byPlayer, corpseEntity);
+            }
+        }
 
-                // Or drop all if corpse creations is disabled
-                else
+        private void HandleCreationFailure(IServerPlayer byPlayer, EntityPlayerCorpse? corpseEntity)
+        {
+            try
+            {
+                Vec3d? dropPos = byPlayer.Entity?.Pos?.XYZ;
+                if (corpseEntity?.Inventory is { Empty: false } inv && dropPos != null)
                 {
-                    corpseEntity.Inventory.DropAll(corpseEntity.Pos.XYZ);
+                    inv.DropAll(dropPos);
                 }
             }
-            else
+            catch (Exception dropEx)
             {
-                string message = $"Inventory is empty, {corpseEntity.OwnerName}'s corpse not created";
-                Mod.Logger.Notification(message);
-                if (Core.Config.DebugMode)
-                {
-                    _sapi.BroadcastMessage(message);
-                }
+                Mod.Logger.Error("Fallback drop also failed for {0}: {1}", byPlayer.PlayerName, dropEx);
+            }
+
+            try
+            {
+                byPlayer.SendMessage(
+                    GlobalConstants.InfoLogChatGroup,
+                    Lang.Get($"{Constants.ModId}:corpse-creation-failed"),
+                    EnumChatType.Notification);
+            }
+            catch
+            {
+                // chat-send failure must not cascade
             }
         }
 
@@ -112,7 +151,7 @@ namespace PlayerCorpse.Systems
             corpse.CreationTime = _sapi.World.Calendar.TotalHours;
             corpse.CreationRealDatetime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-            corpse.Inventory = TakeContentFromPlayer(byPlayer);
+            TakeContentFromPlayer(byPlayer, corpse);
 
             // Fix dancing corpse issue
             BlockPos floorPos = TryFindFloor(byPlayer.Entity.Pos.AsBlockPos);
@@ -143,9 +182,12 @@ namespace PlayerCorpse.Systems
             return pos;
         }
 
-        private InventoryGeneric TakeContentFromPlayer(IServerPlayer byPlayer)
+        private void TakeContentFromPlayer(IServerPlayer byPlayer, EntityPlayerCorpse corpse)
         {
-            var inv = new InventoryGeneric(GetMaxCorpseSlots(byPlayer), $"playercorpse-{byPlayer.PlayerUID}", _sapi);
+            corpse.Inventory = new InventoryGeneric(
+                GetMaxCorpseSlots(byPlayer),
+                $"playercorpse-{byPlayer.PlayerUID}",
+                _sapi);
 
             int lastSlotId = 0;
             foreach (var invClassName in Core.Config.SaveInventoryTypes)
@@ -170,18 +212,16 @@ namespace PlayerCorpse.Systems
                         {
                             break;
                         }
-                        inv[lastSlotId++].Itemstack = TakeSlotContent(slot);
+                        corpse.Inventory[lastSlotId++].Itemstack = TakeSlotContent(slot);
                     }
                     continue;
                 }
 
                 foreach (var slot in byPlayer.InventoryManager.GetOwnInventory(invClassName))
                 {
-                    inv[lastSlotId++].Itemstack = TakeSlotContent(slot);
+                    corpse.Inventory[lastSlotId++].Itemstack = TakeSlotContent(slot);
                 }
             }
-
-            return inv;
         }
 
         private static int GetMaxCorpseSlots(IServerPlayer byPlayer)
