@@ -12,3 +12,6 @@ obj
 
 # Other
 /[Ii]gnore
+
+# Local dev libs (copy CommonLib.dll here for build-time reference; not tracked)
+/lib
