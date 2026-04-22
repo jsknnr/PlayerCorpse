@@ -7,6 +7,6 @@
 	"authors": ["DArkHekRoMaNT"],
 	"dependencies": {
 		"game": "1.22.0",
-		"commonlib": "2.8.0"
+		"commonlib": "2.8.1"
 	}
 }
