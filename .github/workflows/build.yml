@@ -46,25 +46,22 @@ jobs:
           test -f "$HOME/vs/VintagestoryAPI.dll" || { echo "VintagestoryAPI.dll not found in extracted archive"; ls -la "$HOME/vs"; exit 1; }
           echo "VINTAGE_STORY=$HOME/vs" >> "$GITHUB_ENV"
 
-      # CommonLib is resolved via the public moddb API. We match by the version
-      # declared in modinfo.json (dependencies.commonlib) so the build-time
-      # reference stays in sync with the declared runtime dependency.
+      # CommonLib is pulled from the jsknnr/CommonLib GitHub release matching
+      # the version declared in modinfo.json (dependencies.commonlib). The tag
+      # is assumed to be "v<version>" (e.g. commonlib 2.8.1 -> tag v2.8.1).
       - name: Download CommonLib
         env:
           COMMONLIB_VERSION: ${{ steps.meta.outputs.commonlib_version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p lib
-          MOD_JSON=$(curl -fsSL "https://mods.vintagestory.at/api/mod/commonlib")
-          FILE_URL=$(echo "$MOD_JSON" | jq -r --arg v "$COMMONLIB_VERSION" '.mod.releases[] | select(.modversion == $v) | .mainfile' | head -n1)
-          if [ -z "$FILE_URL" ] || [ "$FILE_URL" = "null" ]; then
-            echo "CommonLib $COMMONLIB_VERSION not found on moddb. Available versions:"
-            echo "$MOD_JSON" | jq -r '.mod.releases[].modversion'
-            exit 1
-          fi
-          echo "Downloading $FILE_URL"
-          curl -fsSL -o commonlib.zip "$FILE_URL"
-          unzip -p commonlib.zip CommonLib.dll > lib/CommonLib.dll
+          gh release download "v${COMMONLIB_VERSION}" \
+            --repo jsknnr/CommonLib \
+            --pattern 'CommonLib*.zip' \
+            --dir "$RUNNER_TEMP"
+          COMMONLIB_ZIP=$(ls "$RUNNER_TEMP"/CommonLib*.zip | head -n1)
+          unzip -p "$COMMONLIB_ZIP" CommonLib.dll > lib/CommonLib.dll
           test -s lib/CommonLib.dll
 
       - name: Build
