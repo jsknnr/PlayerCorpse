@@ -1,17 +1,15 @@
 name: Build mod
 
 on:
-  push:
-    branches: [master]
-    tags: ['v*']
-  pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # needed by softprops/action-gh-release on tag pushes
+      contents: write  # needed by softprops/action-gh-release to attach assets
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/vs"
-          URL="https://cdn.vintagestory.at/gamefiles/stable/vs_server_${GAME_VERSION}.tar.gz"
+          URL="https://cdn.vintagestory.at/gamefiles/stable/vs_server_linux-x64_${GAME_VERSION}.tar.gz"
           echo "Downloading $URL"
           curl -fsSL "$URL" | tar -xz -C "$HOME/vs"
           test -f "$HOME/vs/VintagestoryAPI.dll" || { echo "VintagestoryAPI.dll not found in extracted archive"; ls -la "$HOME/vs"; exit 1; }
@@ -84,9 +82,8 @@ jobs:
           path: ${{ steps.meta.outputs.zip_name }}
           if-no-files-found: error
 
-      - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Attach zip to GitHub release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.meta.outputs.zip_name }}
-          generate_release_notes: true
