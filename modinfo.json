@@ -1,12 +1,12 @@
 {
 	"type": "Code",
-	"name": "Player Corpse",
-	"modid": "playercorpse",
+	"name": "PlayerCorpse-Forked",
+	"modid": "playercorpseforked",
 	"version": "1.13.1",
-	"website": "https://github.com/darkhekromant/PlayerCorpse",
-	"authors": ["DArkHekRoMaNT"],
+	"website": "https://github.com/jsknnr/PlayerCorpse",
+	"authors": ["DArkHekRoMaNT", "jsknnr"],
 	"dependencies": {
 		"game": "1.22.0",
-		"commonlib": "2.8.1"
+		"commonlibforked": "2.8.1"
 	}
 }

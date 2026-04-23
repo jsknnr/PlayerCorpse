@@ -186,7 +186,7 @@ namespace PlayerCorpse.Systems
         {
             corpse.Inventory = new InventoryGeneric(
                 GetMaxCorpseSlots(byPlayer),
-                $"playercorpse-{byPlayer.PlayerUID}",
+                $"{Constants.ModId}-{byPlayer.PlayerUID}",
                 _sapi);
 
             int lastSlotId = 0;
@@ -355,7 +355,7 @@ namespace PlayerCorpse.Systems
             var tree = new TreeAttribute();
             tree.FromBytes(File.ReadAllBytes(file));
 
-            var inv = new InventoryGeneric(tree.GetInt("qslots"), $"playercorpse-{player.PlayerUID}", player.Entity.Api);
+            var inv = new InventoryGeneric(tree.GetInt("qslots"), $"{Constants.ModId}-{player.PlayerUID}", player.Entity.Api);
             inv.FromTreeAttributes(tree);
             return inv;
         }

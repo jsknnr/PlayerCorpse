@@ -4,7 +4,7 @@ using Vintagestory.API.Server;
 
 namespace PlayerCorpse
 {
-    [Config("playercorpse.json")]
+    [Config("playercorpseforked.json")]
     public class Config
     {
         [Description("Burns in 15 seconds. LET EVERYTHING BURN IN LAVA!")]

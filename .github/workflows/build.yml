@@ -26,7 +26,7 @@ jobs:
           echo "mod_version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
           echo "game_version=$GAME_VERSION" >> "$GITHUB_OUTPUT"
           echo "commonlib_version=$COMMONLIB_VERSION" >> "$GITHUB_OUTPUT"
-          echo "zip_name=PlayerCorpse_VS${GAME_VERSION}_net10_v${MOD_VERSION}.zip" >> "$GITHUB_OUTPUT"
+          echo "zip_name=PlayerCorpseForked_VS${GAME_VERSION}_net10_v${MOD_VERSION}.zip" >> "$GITHUB_OUTPUT"
 
       # VS ships a headless server tarball that includes VintagestoryAPI.dll,
       # VintagestoryLib.dll, Mods/VS*.dll, and Lib/*.dll — everything the csproj

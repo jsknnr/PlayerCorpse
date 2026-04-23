@@ -1,3 +1,5 @@
-# PlayerCorpse
+# PlayerCorpse-Forked
 
-### Links: [ModDB](https://mods.vintagestory.at/playercorpse), [Forum](https://www.vintagestory.at/forums/topic/3784-player-corpse)
+Fork of [PlayerCorpse](https://github.com/DArkHekRoMaNT/PlayerCorpse) by DArkHekRoMaNT, updated for Vintage Story 1.22 / .NET 10.
+
+### Links: [ModDB](https://mods.vintagestory.at/playercorpseforked)
