@@ -13,6 +13,5 @@
   "corpsecompass-target-set": "Target set on the last corpse",
   "corpsecompass-no-last-corpse": "Last corpse not found",
 
-  "death-waypoint-name": "Death: {0}",
   "corpse-creation-failed": "Corpse creation failed \u2014 your items were dropped at your death location. See server log for details."
 }

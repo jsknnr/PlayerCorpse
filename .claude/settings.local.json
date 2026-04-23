@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(git *)",
-      "WebFetch(domain:apidocs.vintagestory.at)"
+      "WebFetch(domain:apidocs.vintagestory.at)",
+      "Bash(env)",
+      "PowerShell($dll = [System.Reflection.Assembly]::LoadFrom\\(\"G:\\\\Vintagestory\\\\VintagestoryAPI.dll\"\\); $type = $dll.GetType\\(\"Vintagestory.API.Server.IServerEventAPI\"\\); $events = $type.GetEvents\\(\\); $events | Where-Object {$_.Name -match \"PlayerRespawn|PlayerDeath\"} | ForEach-Object { \"$\\($_.Name\\): $\\($_.EventHandlerType.FullName\\)\" })",
+      "PowerShell($dll = [System.Reflection.Assembly]::LoadFrom\\(\"G:\\\\Vintagestory\\\\VintagestoryAPI.dll\"\\); $type = $dll.GetType\\(\"Vintagestory.API.Common.Entities.Entity\"\\); $methods = $type.GetMethods\\([System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::DeclaredOnly\\); $methods | Where-Object {$_.Name -eq \"Revive\"} | ForEach-Object { $sig = \"$\\($_.ReturnType.Name\\) $\\($_.Name\\)\"; if \\($_.GetParameters\\(\\)\\) { $sig += \"\\(\" + [string]::Join\\(\", \", \\($_.GetParameters\\(\\) | ForEach-Object { \"$\\($_.ParameterType.Name\\) `$$\\($_.Name\\)\" }\\)\\) + \"\\)\" } else { $sig += \"\\(\\)\" }; $sig })",
+      "PowerShell($dll = [System.Reflection.Assembly]::LoadFrom\\(\"G:\\\\Vintagestory\\\\VintagestoryAPI.dll\"\\); $type = $dll.GetType\\(\"Vintagestory.API.Common.Entities.EntityBehavior\"\\); $methods = $type.GetMethods\\([System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance\\); $methods | Where-Object {$_.Name -eq \"OnEntityRevive\"} | ForEach-Object { $sig = \"$\\($_.ReturnType.Name\\) $\\($_.Name\\)\"; if \\($_.GetParameters\\(\\)\\) { $sig += \"\\(\" + [string]::Join\\(\", \", \\($_.GetParameters\\(\\) | ForEach-Object { \"$\\($_.ParameterType.Name\\) `$$\\($_.Name\\)\" }\\)\\) + \"\\)\" } else { $sig += \"\\(\\)\" }; $sig })",
+      "PowerShell(Out-Null *)"
     ]
   }
 }

@@ -3,10 +3,9 @@ using CommonLib.Utils;
 using HarmonyLib;
 using PlayerCorpse.Entities;
 using System;
-using System.Drawing;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using Vintagestory.API.Common;
 using Vintagestory.API.Common.Entities;
@@ -14,16 +13,14 @@ using Vintagestory.API.Config;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
-using Vintagestory.GameContent;
 
 namespace PlayerCorpse.Systems
 {
     public class DeathContentManager : ModSystem
     {
-        private static readonly MethodInfo _resendWaypointsMethod = AccessTools.Method(typeof(WaypointMapLayer), "ResendWaypoints");
-        private static readonly MethodInfo _rebuildMapComponentsMethod = AccessTools.Method(typeof(WaypointMapLayer), "RebuildMapComponents");
-
         private ICoreServerAPI _sapi = null!;
+        private readonly Dictionary<string, EntityPlayerCorpse> _pendingCorpses = new();
+        private Harmony? _harmony;
 
         public override bool ShouldLoad(EnumAppSide forSide) => forSide == EnumAppSide.Server;
 
@@ -31,6 +28,16 @@ namespace PlayerCorpse.Systems
         {
             _sapi = api;
             api.Event.OnEntityDeath += OnEntityDeath;
+            api.Event.PlayerRespawn += OnPlayerRespawn;
+
+            _harmony = new Harmony(Constants.ModId);
+            _harmony.PatchAll(typeof(EntityRevivePatch).Assembly);
+        }
+
+        public override void Dispose()
+        {
+            _harmony?.UnpatchAll(Constants.ModId);
+            base.Dispose();
         }
 
         private void OnEntityDeath(Entity entity, DamageSource damageSource)
@@ -55,40 +62,16 @@ namespace PlayerCorpse.Systems
                 corpseEntity = CreateCorpseEntity(byPlayer);
                 if (corpseEntity.Inventory != null && !corpseEntity.Inventory.Empty)
                 {
-                    if (Core.Config.CreateWaypoint == Config.CreateWaypointMode.Always)
-                    {
-                        CreateDeathPoint(byPlayer.Entity, corpseEntity);
-                    }
-
-                    // Save content for /returnthings
+                    // Save content for /returnthings (disk fallback if the server crashes
+                    // before the player respawns or is revived)
                     if (Core.Config.MaxDeathContentSavedPerPlayer > 0)
                     {
                         SaveDeathContent(corpseEntity.Inventory, byPlayer);
                     }
 
-                    // Spawn corpse
-                    if (Core.Config.CreateCorpse)
-                    {
-                        _sapi.World.SpawnEntity(corpseEntity);
-
-                        string message = string.Format(
-                            "Created {0} at {1}, id {2}",
-                            corpseEntity.GetName(),
-                            corpseEntity.Pos.XYZ.RelativePos(_sapi),
-                            corpseEntity.EntityId);
-
-                        Mod.Logger.Notification(message);
-                        if (Core.Config.DebugMode)
-                        {
-                            _sapi.BroadcastMessage(message);
-                        }
-                    }
-
-                    // Or drop all if corpse creations is disabled
-                    else
-                    {
-                        corpseEntity.Inventory.DropAll(corpseEntity.Pos.XYZ);
-                    }
+                    // Hold the corpse until the player either respawns (spawn it)
+                    // or is revived (return items). See OnPlayerRespawn / HandleRevive.
+                    _pendingCorpses[byPlayer.PlayerUID] = corpseEntity;
                 }
                 else
                 {
@@ -134,6 +117,95 @@ namespace PlayerCorpse.Systems
             catch
             {
                 // chat-send failure must not cascade
+            }
+        }
+
+        private void OnPlayerRespawn(IServerPlayer byPlayer)
+        {
+            if (!_pendingCorpses.Remove(byPlayer.PlayerUID, out var corpseEntity)) return;
+
+            try
+            {
+                if (Core.Config.CreateCorpse)
+                {
+                    _sapi.World.SpawnEntity(corpseEntity);
+
+                    string message = string.Format(
+                        "Created {0} at {1}, id {2}",
+                        corpseEntity.GetName(),
+                        corpseEntity.Pos.XYZ.RelativePos(_sapi),
+                        corpseEntity.EntityId);
+
+                    Mod.Logger.Notification(message);
+                    if (Core.Config.DebugMode)
+                    {
+                        _sapi.BroadcastMessage(message);
+                    }
+                }
+                else
+                {
+                    corpseEntity.Inventory?.DropAll(corpseEntity.Pos.XYZ);
+                }
+            }
+            catch (Exception ex)
+            {
+                Mod.Logger.Error("Deferred corpse spawn failed for {0}: {1}", byPlayer.PlayerName, ex);
+                try { corpseEntity.Inventory?.DropAll(corpseEntity.Pos.XYZ); } catch { }
+            }
+        }
+
+        public void HandleRevive(EntityPlayer entityPlayer)
+        {
+            if (entityPlayer.Player is not IServerPlayer byPlayer) return;
+            if (!_pendingCorpses.ContainsKey(byPlayer.PlayerUID)) return;
+
+            // Respawn also invokes Entity.Revive(); PlayerRespawn fires immediately after.
+            // Defer so the respawn path (if any) can consume the pending entry first.
+            // If it's a true revive, the entry will still be there when the callback runs.
+            string playerUid = byPlayer.PlayerUID;
+            _sapi.World.RegisterCallback((_) => DoHandleRevive(playerUid), 50);
+        }
+
+        private void DoHandleRevive(string playerUid)
+        {
+            if (!_pendingCorpses.Remove(playerUid, out var corpseEntity)) return;
+            if (corpseEntity.Inventory == null) return;
+
+            var byPlayer = _sapi.World.PlayerByUid(playerUid) as IServerPlayer;
+            if (byPlayer?.Entity == null)
+            {
+                // Player disconnected between revive and the deferred handler — drop at corpse pos as fallback.
+                try { corpseEntity.Inventory.DropAll(corpseEntity.Pos.XYZ); } catch { }
+                return;
+            }
+
+            Vec3d dropPos = byPlayer.Entity.Pos.XYZ;
+            try
+            {
+                foreach (var slot in corpseEntity.Inventory)
+                {
+                    if (slot.Empty) continue;
+
+                    var dummy = new DummySlot(slot.Itemstack);
+                    var op = new ItemStackMoveOperation(
+                        byPlayer.Entity.World,
+                        EnumMouseButton.Left,
+                        0,
+                        EnumMergePriority.AutoMerge,
+                        slot.StackSize);
+
+                    byPlayer.InventoryManager.TryTransferAway(dummy, ref op, onlyPlayerInventory: true, slotNotifyEffect: false);
+
+                    if (dummy.StackSize > 0)
+                    {
+                        byPlayer.Entity.World.SpawnItemEntity(dummy.Itemstack, dropPos);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Mod.Logger.Error("Revive item-return failed for {0}: {1}", byPlayer.PlayerName, ex);
+                try { corpseEntity.Inventory.DropAll(dropPos); } catch { }
             }
         }
 
@@ -252,61 +324,6 @@ namespace PlayerCorpse.Systems
             }
 
             return slot.TakeOutWhole();
-        }
-
-        public static void CreateDeathPoint(EntityPlayer byPlayer, EntityPlayerCorpse corpseEntity)
-        {
-            if (byPlayer.Api is ICoreServerAPI)
-            {
-                var mapLayer = GetMapLayer(byPlayer.Api);
-
-                if (mapLayer is null)
-                {
-                    byPlayer.Api.Logger.Error("Failed to create waypoint, maplayer is null");
-                    return;
-                }
-
-                Waypoint wp = new()
-                {
-                    Position = byPlayer.Pos.AsBlockPos.ToVec3d(),
-                    Title = Lang.Get($"{Constants.ModId}:death-waypoint-name", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")),
-                    Pinned = Core.Config.PinWaypoint,
-                    Icon = Core.Config.WaypointIcon,
-                    Color = ColorTranslator.FromHtml(Core.Config.WaypointColor).ToArgb(),
-                    OwningPlayerUid = byPlayer.PlayerUID,
-                    Guid = corpseEntity.CorpseId.ToString()
-                };
-
-                mapLayer.AddWaypoint(wp, byPlayer.Player as IServerPlayer);
-            }
-        }
-
-        private static WaypointMapLayer? GetMapLayer(ICoreAPI api)
-        {
-            return api.ModLoader.GetModSystem<WorldMapManager>().MapLayers.FirstOrDefault(ml => ml is WaypointMapLayer) as WaypointMapLayer;
-        }
-
-        public static void RemoveDeathPoint(EntityPlayer byPlayer, EntityPlayerCorpse corpseEntity)
-        {
-            if (byPlayer is null || corpseEntity is null) return;
-
-            if (byPlayer.Api is ICoreServerAPI sapi)
-            {
-                var serverPlayer = byPlayer.Player as IServerPlayer;
-                var mapLayer = GetMapLayer(sapi);
-                var waypoints = mapLayer?.Waypoints ?? [];
-
-                //For every waypoint the player owns, check if it matches the corpse entity id and remove it
-                foreach (Waypoint waypoint in waypoints.ToList().Where(w => w.OwningPlayerUid == byPlayer.PlayerUID))
-                {
-                    if (waypoint.Guid == corpseEntity.CorpseId.ToString())
-                    {
-                        waypoints.Remove(waypoint);
-                        _resendWaypointsMethod.Invoke(mapLayer, [serverPlayer]);
-                        _rebuildMapComponentsMethod.Invoke(mapLayer, null);
-                    }
-                }
-            }
         }
 
         public string GetDeathDataPath(IPlayer player)

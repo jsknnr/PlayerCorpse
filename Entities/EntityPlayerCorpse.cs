@@ -206,10 +206,6 @@ namespace PlayerCorpse.Entities
                             else if (SecondsPassed > Core.Config.CorpseCollectionTime)
                             {
                                 Collect(byPlayer);
-                                if (Core.Config.RemoveWaypointOnCollect)
-                                {
-                                    DeathContentManager.RemoveDeathPoint(byPlayer.Entity, this);
-                                }
                             }
                         }
 

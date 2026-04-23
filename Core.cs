@@ -20,21 +20,5 @@ namespace PlayerCorpse
             api.RegisterItemClass("ItemCorpseCompass", typeof(ItemCorpseCompass));
         }
 
-        public override void AssetsLoaded(ICoreAPI api)
-        {
-            if (Config.CreateWaypoint == Config.CreateWaypointMode.Auto)
-            {
-                Config.CreateWaypoint = Config.CreateWaypointMode.Always;
-
-                var hasDeathWaypointsMods = api.Assets.Get<string[]>($"{Mod.Info.ModID}:config/hasdeathwaypointsmods.json");
-                foreach (var modid in hasDeathWaypointsMods)
-                {
-                    if (api.ModLoader.IsModEnabled(modid))
-                    {
-                        Config.CreateWaypoint = Config.CreateWaypointMode.None;
-                    }
-                }
-            }
-        }
     }
 }

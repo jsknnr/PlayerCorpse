@@ -30,20 +30,6 @@ namespace PlayerCorpse
         [Range(0, int.MaxValue)]
         public int MaxDeathContentSavedPerPlayer { get; set; } = 10;
 
-        [Description("Auto mode will try to resolve conflicts with other mods")]
-        public CreateWaypointMode CreateWaypoint { get; set; } = CreateWaypointMode.Auto;
-        public enum CreateWaypointMode { Auto, Always, None };
-
-        [Description("circle, bee, cave, home, ladder, pick, rocks, ruins, spiral, star1, star2, trader, vessel, etc")]
-        public string WaypointIcon { get; set; } = "bee";
-
-        [Description("https://www.99colors.net/dot-net-colors")]
-        public string WaypointColor { get; set; } = "crimson";
-
-        public bool PinWaypoint { get; set; } = true;
-
-        [Description("If true, the waypoint will be removed when the corpse is collected")]
-        public bool RemoveWaypointOnCollect { get; set; } = true;
         public bool DebugMode { get; set; } = false;
 
         [Description("Makes corpses available to everyone after N in-game hours (0 - always, below zero - never)")]
