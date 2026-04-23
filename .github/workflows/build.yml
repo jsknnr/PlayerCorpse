@@ -22,7 +22,7 @@ jobs:
         run: |
           MOD_VERSION=$(jq -r '.version' modinfo.json)
           GAME_VERSION=$(jq -r '.dependencies.game' modinfo.json)
-          COMMONLIB_VERSION=$(jq -r '.dependencies.commonlib' modinfo.json)
+          COMMONLIB_VERSION=$(jq -r '.dependencies.commonlibforked' modinfo.json)
           echo "mod_version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
           echo "game_version=$GAME_VERSION" >> "$GITHUB_OUTPUT"
           echo "commonlib_version=$COMMONLIB_VERSION" >> "$GITHUB_OUTPUT"
@@ -56,9 +56,9 @@ jobs:
           mkdir -p lib
           gh release download "v${COMMONLIB_VERSION}" \
             --repo jsknnr/CommonLib \
-            --pattern 'CommonLib*.zip' \
+            --pattern 'CommonLibForked*.zip' \
             --dir "$RUNNER_TEMP"
-          COMMONLIB_ZIP=$(ls "$RUNNER_TEMP"/CommonLib*.zip | head -n1)
+          COMMONLIB_ZIP=$(ls "$RUNNER_TEMP"/CommonLibForked*.zip | head -n1)
           unzip -p "$COMMONLIB_ZIP" CommonLib.dll > lib/CommonLib.dll
           test -s lib/CommonLib.dll
 
