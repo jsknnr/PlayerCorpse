@@ -71,6 +71,11 @@ namespace PlayerCorpse.Entities
 
         public Guid CorpseId { get; set; } = Guid.NewGuid();
 
+        // New behavior introduced in VS 1.22 seems to make it impossible to retrieve submerged corpses
+        // Anything with a MaterialDensity < 1000 should float, making it possible to retrieve the corpse.
+        // 900 is just a shot in the dark, it may need tweaked later.
+        public override float MaterialDensity => 900f;
+
         public override void Initialize(EntityProperties properties, ICoreAPI api, long InChunkIndex3d)
         {
             base.Initialize(properties, api, InChunkIndex3d);
