@@ -77,6 +77,7 @@ namespace PlayerCorpse.Systems
 
             var dcm = _sapi.ModLoader.GetModSystem<DeathContentManager>();
             InventoryGeneric inventory = dcm.LoadLastDeathContent(player, id);
+
             foreach (var slot in inventory)
             {
                 if (slot.Empty)
@@ -91,6 +92,9 @@ namespace PlayerCorpse.Systems
                 slot.Itemstack = null;
                 slot.MarkDirty();
             }
+
+            // Remove the file once items returned to prevent duping.
+            try { File.Delete(files[id]); } catch { /* already-gone is fine */ }
 
             return TextCommandResult.Success(Lang.Get(
                 "Returned things from {0} to {1} with index {2}",

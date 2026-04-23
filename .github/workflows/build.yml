@@ -70,7 +70,7 @@ jobs:
           ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
         run: |
           set -euo pipefail
-          cd bin/Release/Mods/PlayerCorpse
+          cd bin/Release/Mods/PlayerCorpseForked
           # Exclude .pdb from release zip to match upstream packaging
           zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" . -x '*.pdb'
           cd "$GITHUB_WORKSPACE"
