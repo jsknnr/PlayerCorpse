@@ -2,7 +2,7 @@
 	"type": "Code",
 	"name": "PlayerCorpse-Forked",
 	"modid": "playercorpseforked",
-	"version": "1.13.1",
+	"version": "1.14.0",
 	"website": "https://github.com/jsknnr/PlayerCorpse",
 	"authors": ["DArkHekRoMaNT", "jsknnr"],
 	"dependencies": {
