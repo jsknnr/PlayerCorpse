@@ -8,15 +8,21 @@ This is a maintained fork of **PlayerCorpse** by **DArkHekRoMaNT**, kept working
 - Original source: https://github.com/DArkHekRoMaNT/PlayerCorpse
 - This fork's source and issue tracker: https://github.com/jsknnr/PlayerCorpse
 
-The 1.15.0 update, which removed the CommonLib dependency, moved corpse creation to the moment of death, and reworked the compass, was developed by jsknnr together with Claude, Anthropic's AI model (Claude Fable 5.1), working from player bug reports.
+## AI Disclosure
+
+This fork was co-developed with the help of Claude, Anthropic's AI model (Claude Fable 5.1). However, this was not vibe-coded. Code included in my fork is a combination of my own artisanally, hand-crafted, bespoke code, and code for Claude. All changes were verified and tested by me.
+
+### Why use AI at all?
+
+When using AI properly and with supervision from a human it is incredibly useful. For example, while I worked on this fork I had the decompiled 1.22.7 game DLL's in Claude's context. It can cross reference calls to the game APIs a hell of a lot faster than I can providing super helpful insights to how things are functioning and potentially finding edge cases I may have missed on my own. I do not consider myself a C# developer, though I can understand and write C# code. I am a Python developer by trade. 
 
 ## How it works
 
-- **Dying** creates a corpse holding your hotbar, backpack, crafting grid, and whatever was on your cursor. Worn armor and clothes follow the game's own rules unless you change `DropArmorOnDeath` in the config.
-- **Collecting** means holding right-click on the body. A ring fills up around your crosshair; after one second the items go back into your inventory. Anything that does not fit drops at your feet.
-- **Only you** can collect your corpse for the first 240 in-game hours (ten in-game days). After that it is free for anyone. Creative mode players can always collect any corpse.
-- **Revived by a friend?** Your corpse is collected back into your inventory automatically. If you respawn instead, the corpse stays where you died.
-- **Corpses persist.** They are saved with the world, float if they land in water, and survive server restarts. The game's own "You died here" map marker still appears as usual.
+- When you die, it creates a corpse holding your hotbar, backpack, crafting grid, and whatever was on your cursor. Worn armor and clothes follow the game's own rules unless you change `DropArmorOnDeath` in the config.
+- To collect your corpse, all you have to do is hold right-click on the body. A ring fills up around your crosshair; after one second the items go back into your inventory. Anything that does not fit drops at your feet.
+- Only you (and admins) can collect your corpse for the first 240 in-game hours (ten in-game days). After that it is free for anyone. Creative mode players can always collect any corpse.
+- If you are revived, your corpse is collected back into your inventory automatically. If you respawn instead, the corpse stays where you died.
+- Corpses are saved with the world, float if they land in water, and survive server restarts. The game's own "You died here" map marker still appears as usual.
 
 ## Corpse compass
 

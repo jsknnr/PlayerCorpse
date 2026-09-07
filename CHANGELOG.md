@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.15.1 (2026-09-07)
+
+- Fixed corpses that were visible but could not be clicked until a relog. The game only lists an entity in its chunk when the chunk is already loaded on the client, and a corpse that arrived a moment too early was drawn but invisible to the crosshair. Corpses now re-list themselves.
+- Right-clicking a corpse with the compass in hand collects the corpse instead of starting a search.
+
 ## 1.15.0 (2026-09-07)
 
 Requires Vintage Story 1.22.7 or newer. CommonLib is no longer needed.
