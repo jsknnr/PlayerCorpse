@@ -21,10 +21,10 @@ namespace PlayerCorpse.Items
         public static long CycleCooldownMs => 500;
         public static long OffHandRefreshMs => 10000;
 
-        // Model needle. The arrow sits in the "C Pillar" element group; at rest its tip points along +X,
-        // which is east when the model's -Z faces forward. Adjust these two if the needle is visibly off.
+        // Model needle. The arrow sits in the "C Pillar" element group; verified in-game, at rest its tip
+        // points along +Z (south when the model's -Z faces forward). Adjust these two if the needle is off.
         private const string NeedleElementName = "C Pillar";
-        private const float NeedleRestBearingDeg = 90f;
+        private const float NeedleRestBearingDeg = 180f;
         private const int NeedleStepDeg = 10;
 
         private CorpseCompassSystem? _compass;

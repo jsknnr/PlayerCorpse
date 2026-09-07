@@ -64,6 +64,9 @@
   },
   "storageFlags": 257,
   "heldTpUseAnimation": "",
+  "heldRightReadyAnimation": "holdinglanternrighthand",
+  "heldRightTpIdleAnimation": "holdinglanternrighthand",
+  "heldLeftTpIdleAnimation": "holdinglanternlefthand",
   "guiTransform": {
     "translation": {
       "x": 3,
