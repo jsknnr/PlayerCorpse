@@ -2,6 +2,7 @@
 
 ## 1.15.1 (2026-09-07)
 
+- Runs on Vintage Story 1.22.0 and newer again. 1.15.0 declared 1.22.7 as its minimum, which the code never actually needed.
 - Fixed corpses that were visible but could not be clicked until a relog. The game only lists an entity in its chunk when the chunk is already loaded on the client, and a corpse that arrived a moment too early was drawn but invisible to the crosshair. Corpses now re-list themselves.
 - Right-clicking a corpse with the compass in hand collects the corpse instead of starting a search.
 
