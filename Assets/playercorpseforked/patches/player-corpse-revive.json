@@ -1,0 +1,8 @@
+[
+  {
+    "file": "game:entities/humanoid/player.json",
+    "op": "add",
+    "path": "/server/behaviors/-",
+    "value": { "code": "playercorpserevive" }
+  }
+]

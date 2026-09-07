@@ -6,7 +6,6 @@
 	"website": "https://github.com/jsknnr/PlayerCorpse",
 	"authors": ["DArkHekRoMaNT", "jsknnr"],
 	"dependencies": {
-		"game": "1.22.0",
-		"commonlibforked": "2.8.1"
+		"game": "1.22.0"
 	}
 }

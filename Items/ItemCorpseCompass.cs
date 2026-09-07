@@ -1,223 +1,171 @@
-using CommonLib.Extensions;
-using CommonLib.Utils;
-using PlayerCorpse.Entities;
+using PlayerCorpse.Systems;
 using System;
 using System.Collections.Generic;
+using System.Text;
+using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
-using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
 
 namespace PlayerCorpse.Items
 {
+    /// <summary>
+    /// Points at the holder's corpses. Right-click targets the nearest one, shift right-click cycles through
+    /// them, and in the off-hand it keeps refreshing. Targets come from the server's corpse registry, so
+    /// distance and chunk loading do not matter. The needle in the model turns toward the target when held.
+    /// </summary>
     public class ItemCorpseCompass : Item
     {
-        public static long SearchCooldown => 5000;
-        public static long OffHandSearchCooldown => 10000;
-        public static long OffHandParticleEmitCooldown => 250;
-        public static int SearchRadius => 3;
+        public static long SearchCooldownMs => 5000;
+        public static long CycleCooldownMs => 500;
+        public static long OffHandRefreshMs => 10000;
 
-        private readonly SimpleParticleProperties _particles = new()
-        {
-            MinPos = Vec3d.Zero,
-            AddPos = new Vec3d(.2, .2, .2),
+        // Model needle. The arrow sits in the "C Pillar" element group; at rest its tip points along +X,
+        // which is east when the model's -Z faces forward. Adjust these two if the needle is visibly off.
+        private const string NeedleElementName = "C Pillar";
+        private const float NeedleRestBearingDeg = 90f;
+        private const int NeedleStepDeg = 10;
 
-            MinVelocity = Vec3f.Zero,
-            AddVelocity = Vec3f.Zero,
-            RandomVelocityChange = true,
-
-            Bounciness = 0.1f,
-            GravityEffect = 0,
-            WindAffected = false,
-            WithTerrainCollision = true,
-
-            MinSize = 0.3f,
-            MaxSize = 0.8f,
-            MinQuantity = 1,
-            AddQuantity = 5,
-            LifeLength = 1f,
-
-            VertexFlags = 100 & VertexFlags.GlowLevelBitMask,
-            ParticleModel = EnumParticleModel.Quad
-        };
-
-        private ILogger? _modLogger;
-        public ILogger ModLogger => _modLogger ?? api.Logger;
+        private CorpseCompassSystem? _compass;
+        private ICoreClientAPI? _capi;
+        private Vintagestory.API.Common.Shape? _needleShape;
+        private readonly Dictionary<int, MultiTextureMeshRef> _needleMeshes = new();
 
         public override void OnLoaded(ICoreAPI api)
         {
             base.OnLoaded(api);
-            _modLogger = api.ModLoader.GetModSystem<Core>().Mod.Logger;
+            _compass = api.ModLoader.GetModSystem<CorpseCompassSystem>();
+            _capi = api as ICoreClientAPI;
+        }
+
+        public override void OnUnloaded(ICoreAPI api)
+        {
+            foreach (var mesh in _needleMeshes.Values)
+            {
+                mesh.Dispose();
+            }
+            _needleMeshes.Clear();
+            base.OnUnloaded(api);
         }
 
         public override void OnHeldInteractStart(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handling)
         {
             base.OnHeldInteractStart(slot, byEntity, blockSel, entitySel, firstEvent, ref handling);
 
-            if (handling == EnumHandHandling.NotHandled)
+            if (handling != EnumHandHandling.NotHandled || slot.Itemstack == null)
             {
-                long lastCorpseSearch = slot.Itemstack.TempAttributes.GetLong("lastCorpseSearch", 0);
-                if (lastCorpseSearch + SearchCooldown < api.World.ElapsedMilliseconds)
-                {
-                    UpdateNearestCorpse(byEntity, slot);
-                    slot.Itemstack.TempAttributes.SetLong("lastCorpseSearch", api.World.ElapsedMilliseconds);
-                    handling = EnumHandHandling.PreventDefault;
-                }
-
-                EmitParticles(slot, byEntity);
+                return;
             }
+
+            handling = EnumHandHandling.PreventDefault;
+
+            // One search per click, decided by the server.
+            if (!firstEvent || api.Side != EnumAppSide.Server || byEntity is not EntityPlayer { Player: IServerPlayer serverPlayer })
+            {
+                return;
+            }
+
+            bool cycle = byEntity.Controls.Sneak;
+            long cooldown = cycle ? CycleCooldownMs : SearchCooldownMs;
+            long now = api.World.ElapsedMilliseconds;
+            long last = slot.Itemstack.TempAttributes.GetLong("lastCorpseSearch", 0);
+            if (now - last < cooldown)
+            {
+                return;
+            }
+            slot.Itemstack.TempAttributes.SetLong("lastCorpseSearch", now);
+
+            _compass?.Search(serverPlayer, slot, cycle ? CompassSearchMode.Cycle : CompassSearchMode.Nearest, explicitRequest: true);
         }
 
         public override void OnHeldIdle(ItemSlot slot, EntityAgent byEntity)
         {
-            if (byEntity.LeftHandItemSlot == slot)
-            {
-                long lastCorpseSearch = slot.Itemstack.TempAttributes.GetLong("lastCorpseSearch", 0);
-                if (lastCorpseSearch + OffHandSearchCooldown < api.World.ElapsedMilliseconds)
-                {
-                    UpdateNearestCorpse(byEntity, slot);
-                    slot.Itemstack.TempAttributes.SetLong("lastCorpseSearch", api.World.ElapsedMilliseconds);
-                }
-
-                long lastEmit = slot.Itemstack.TempAttributes.GetLong("lastEmitParticlesOffHand", 0);
-                if (lastEmit + OffHandParticleEmitCooldown < byEntity.World.ElapsedMilliseconds)
-                {
-                    EmitParticles(slot, byEntity);
-                    slot.Itemstack.TempAttributes.SetLong("lastEmitParticlesOffHand", byEntity.World.ElapsedMilliseconds);
-                }
-            }
-
             base.OnHeldIdle(slot, byEntity);
+
+            // Off-hand: silently keep the target fresh. The client shows the HUD and particles on its own.
+            if (api.Side != EnumAppSide.Server || slot.Itemstack == null || byEntity.LeftHandItemSlot != slot ||
+                byEntity is not EntityPlayer { Player: IServerPlayer serverPlayer })
+            {
+                return;
+            }
+
+            long now = api.World.ElapsedMilliseconds;
+            long last = slot.Itemstack.TempAttributes.GetLong("lastCorpseSearch", 0);
+            if (now - last < OffHandRefreshMs)
+            {
+                return;
+            }
+            slot.Itemstack.TempAttributes.SetLong("lastCorpseSearch", now);
+
+            _compass?.Search(serverPlayer, slot, CompassSearchMode.Refresh, explicitRequest: false);
         }
 
-        private void EmitParticles(ItemSlot slot, EntityAgent byEntity)
+        public override void GetHeldItemInfo(ItemSlot inSlot, StringBuilder dsc, IWorldAccessor world, bool withDebugInfo)
         {
-            Vec3i nearestCorpsePos = slot.Itemstack.Attributes.GetVec3i("nearestCorpsePos");
-            if (api.Side == EnumAppSide.Client && nearestCorpsePos != null)
+            base.GetHeldItemInfo(inSlot, dsc, world, withDebugInfo);
+            dsc.AppendLine(Lang.Get($"{Constants.ModId}:corpsecompass-usage"));
+        }
+
+        public override void OnBeforeRender(ICoreClientAPI capi, ItemStack itemstack, EnumItemRenderTarget target, ref ItemRenderInfo renderinfo)
+        {
+            base.OnBeforeRender(capi, itemstack, target, ref renderinfo);
+
+            if (target is not (EnumItemRenderTarget.HandTp or EnumItemRenderTarget.HandTpOff))
             {
-                var targetPos = nearestCorpsePos.ToVec3d().Add(.5, 0, .5);
-                var startPos = byEntity.Pos.AheadCopy(1).XYZ.Add(0, byEntity.LocalEyePos.Y, 0);
-                var relativePos = targetPos - startPos;
+                return;
+            }
 
+            if (_compass?.Target == null || !_compass.HasTargetInCurrentDimension())
+            {
+                return;
+            }
 
-                _particles.MinVelocity = relativePos.ToVec3f() / (_particles.LifeLength * 3);
-                _particles.MinPos = startPos;
-                _particles.AddPos = _particles.MinVelocity.ToVec3d() * 0.1;
+            EntityPlayer player = capi.World.Player.Entity;
+            double bearing = CorpseCompassSystem.BearingDeg(player.Pos, _compass.Target);
+            // Player facing bearing is -yaw (yaw 0 faces -Z, positive yaw turns toward -X).
+            double relative = bearing + player.Pos.Yaw * GameMath.RAD2DEG;
 
-                _particles.MinSize = GameMath.Clamp(_particles.MinVelocity.Length() * 0.01f, 0.05f, 3f);
-                _particles.MaxSize = _particles.MinSize * 2;
-
-                _particles.Color = GetRandomColor(api.World.Rand);
-                api.World.SpawnParticles(_particles);
+            MultiTextureMeshRef? mesh = GetNeedleMesh(relative);
+            if (mesh != null)
+            {
+                renderinfo.ModelRef = mesh;
             }
         }
 
-        private void UpdateNearestCorpse(EntityAgent byEntity, ItemSlot slot)
+        /// <summary>Cached mesh with the needle turned toward the given bearing relative to the holder.</summary>
+        private MultiTextureMeshRef? GetNeedleMesh(double relativeBearingDeg)
         {
-            if (api.Side == EnumAppSide.Server && byEntity is EntityPlayer playerEntity)
+            if (_capi == null) return null;
+
+            int step = ((int)Math.Round(relativeBearingDeg / NeedleStepDeg) * NeedleStepDeg % 360 + 360) % 360;
+            if (_needleMeshes.TryGetValue(step, out var cached))
             {
-                double distance = double.MaxValue;
-                EntityPlayerCorpse? nearestCorpse = null;
-
-                string? ownerUID = playerEntity.PlayerUID;
-                if (playerEntity.Player.WorldData.CurrentGameMode == EnumGameMode.Creative)
-                {
-                    ownerUID = null; // show all corpses in creative
-                }
-
-                foreach (EntityPlayerCorpse corpse in GetCorpsesAround(SearchRadius, byEntity.Pos.XYZInt, ownerUID))
-                {
-                    double currDistance = byEntity.Pos.SquareDistanceTo(corpse.Pos);
-                    if (currDistance <= distance)
-                    {
-                        distance = currDistance;
-                        nearestCorpse = corpse;
-                    }
-                }
-
-                if (nearestCorpse != null)
-                {
-                    slot.Itemstack.Attributes.SetVec3i("nearestCorpsePos", nearestCorpse.Pos.XYZInt);
-                    slot.MarkDirty();
-
-                    string text = $"{nearestCorpse.OwnerName}'s corpse found at {nearestCorpse.Pos.XYZ}";
-                    ModLogger.Notification(text);
-                    if (Core.Config.DebugMode)
-                    {
-                        byEntity.SendMessage(text);
-                    }
-                }
-                else
-                {
-                    slot.Itemstack.Attributes.RemoveAttribute("nearestCorpsePosX");
-                    slot.Itemstack.Attributes.RemoveAttribute("nearestCorpsePosY");
-                    slot.Itemstack.Attributes.RemoveAttribute("nearestCorpsePosZ");
-                    slot.MarkDirty();
-
-                    byEntity.SendMessage(Lang.Get($"{Constants.ModId}:corpsecompass-corpses-not-found"));
-                }
+                return cached;
             }
-        }
 
-        private IEnumerable<EntityPlayerCorpse> GetCorpsesAround(int radius, Vec3i pos, string? playerUID = null)
-        {
-            foreach (IServerChunk chunk in GetAllChunksAround(radius, pos))
+            _needleShape ??= Vintagestory.API.Common.Shape.TryGet(_capi, Shape.Base.Clone().WithPathPrefixOnce("shapes/").WithPathAppendixOnce(".json"));
+            if (_needleShape == null)
             {
-                if (chunk.Entities != null)
-                {
-                    foreach (var entity in chunk.Entities)
-                    {
-                        if (entity is EntityPlayerCorpse corpseEntity)
-                        {
-                            if (playerUID == null || corpseEntity.OwnerUID == playerUID)
-                            {
-                                yield return corpseEntity;
-                            }
-                        }
-                    }
-                }
+                return null;
             }
-        }
 
-        private IEnumerable<IServerChunk> GetAllChunksAround(int radius, Vec3i pos)
-        {
-            var sapi = (ICoreServerAPI)api;
-
-            int chunkSize = sapi.WorldManager.ChunkSize;
-            int chunksInColum = sapi.WorldManager.MapSizeY / chunkSize;
-
-            int chunkX = pos.X / chunkSize;
-            int chunkZ = pos.Z / chunkSize;
-
-            for (int i = chunkX - radius; i <= chunkX + radius; i++)
+            Vintagestory.API.Common.Shape shape = _needleShape.Clone();
+            ShapeElement? needle = shape.GetElementByName(NeedleElementName);
+            if (needle == null)
             {
-                for (int j = chunkZ - radius; j <= chunkZ + radius; j++)
-                {
-                    for (int k = 0; k < chunksInColum; k++)
-                    {
-                        var chunk = sapi.WorldManager.GetChunk(i, k, j);
-                        if (chunk != null)
-                        {
-                            yield return chunk;
-                        }
-                        else
-                        {
-                            ModLogger.Warning("Chunk at X={0} Y={1} Z={2} is not loaded", i, k, j);
-                        }
-                    }
-                }
+                _capi.Logger.Warning("Corpse compass shape has no '{0}' element, needle will not turn", NeedleElementName);
+                return null;
             }
-        }
 
-        private static int GetRandomColor(Random rand)
-        {
-            int a = 255;
-            int r = rand.Next(200, 256);
-            int g = rand.Next(100, 156);
-            int b = rand.Next(0, 56);
+            // Shape rotation is counter-clockwise from above, bearings are clockwise.
+            needle.RotationOrigin = [0, 0, 0];
+            needle.RotationY = NeedleRestBearingDeg - step;
 
-            return ColorUtil.ToRgba(a, r, g, b);
+            _capi.Tesselator.TesselateShape(this, shape, out MeshData meshData);
+            MultiTextureMeshRef mesh = _capi.Render.UploadMultiTextureMesh(meshData);
+            _needleMeshes[step] = mesh;
+            return mesh;
         }
     }
 }

@@ -41,10 +41,6 @@
 			<HintPath>$(VINTAGE_STORY)/Lib/Newtonsoft.Json.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
-		<Reference Include="0Harmony">
-			<HintPath>$(VINTAGE_STORY)/Lib/0Harmony.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
 		<Reference Include="protobuf-net">
 			<HintPath>$(VINTAGE_STORY)/Lib/protobuf-net.dll</HintPath>
 			<Private>false</Private>
@@ -55,14 +51,6 @@
 		</Reference>
 		<Reference Include="Microsoft.Data.Sqlite">
 			<HintPath>$(VINTAGE_STORY)/Lib/Microsoft.Data.Sqlite.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-	</ItemGroup>
-
-	<!-- CommonLib dependency (drop a 1.22-compatible CommonLib.dll into /lib) -->
-	<ItemGroup>
-		<Reference Include="CommonLib">
-			<HintPath>lib/CommonLib.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>

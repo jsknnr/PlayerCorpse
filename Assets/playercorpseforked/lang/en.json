@@ -1,17 +1,26 @@
 {
   "item-creature-playercorpse": "Player corpse",
   "blockhelp-collect": "Collect",
-
   "game:ingameerror-not-corpse-owner": "This is not your corpse!",
   "corpse-free": "Free for all",
   "corpse-created(date={0})": "Created {0}",
-
   "item-corpsecompass": "Corpse Compass",
   "playercorpseforked:item-handbooktitle-playercorpseforked:corpsecompass": "Usage",
-  "playercorpseforked:item-handbooktext-playercorpseforked:corpsecompass": "Helps to find your corpses. Server admins can also check the server-main.txt log for the exact coordinates of all corpses (uses in Creative)<br/><br/><b>Searches in 7x7 chunks around player (224x256x224 blocks by default)</b>",
+  "playercorpseforked:item-handbooktext-playercorpseforked:corpsecompass": "Points at your corpses anywhere in the world, loaded or not. Right-click to target the nearest one, shift + right-click to cycle through them. Holding it (either hand) shows distance, direction and height difference; in the off-hand it also streams guiding particles. The needle turns toward the target. Server admins can also check the server-main.txt log for the exact coordinates of all corpses (creative mode finds everyone's corpses).",
   "corpsecompass-corpses-not-found": "No corpses found around",
-  "corpsecompass-target-set": "Target set on the last corpse",
-  "corpsecompass-no-last-corpse": "Last corpse not found",
-
-  "corpse-creation-failed": "Corpse creation failed \u2014 your items were dropped at your death location. See server log for details."
+  "corpse-creation-failed": "Corpse creation failed — your items were dropped at your death location. See server log for details.",
+  "corpsecompass-usage": "Right-click: nearest corpse. Shift + right-click: next corpse.",
+  "compass-hud": "{0}'s corpse: {1}m {2}, {3}",
+  "compass-hud-above": "{0} above",
+  "compass-hud-below": "{0} below",
+  "compass-hud-level": "same level",
+  "compass-hud-multi": "({0}/{1}, shift + right-click to cycle)",
+  "dir-n": "N",
+  "dir-ne": "NE",
+  "dir-e": "E",
+  "dir-se": "SE",
+  "dir-s": "S",
+  "dir-sw": "SW",
+  "dir-w": "W",
+  "dir-nw": "NW"
 }
