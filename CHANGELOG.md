@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.15.0 (2026-09-07)
+## 1.15.1 (2026-09-07)
 
 Requires Vintage Story 1.22.7 or newer. CommonLib is no longer needed.
 

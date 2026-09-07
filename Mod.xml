@@ -2,7 +2,7 @@
 	<PropertyGroup>
 		<Name>PlayerCorpse-Forked</Name>
 		<ModId>playercorpseforked</ModId>
-		<Version>1.15.0</Version>
+		<Version>1.15.1</Version>
 		<Authors>DArkHekRoMaNT, jsknnr</Authors>
 		<MinimalGameVersion>1.22.7</MinimalGameVersion>
 		<GameVersion>1.22.7</GameVersion>
