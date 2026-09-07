@@ -20,6 +20,7 @@ namespace PlayerCorpse.Entities
         private long _lastInteractMs;
         private HudCircleRenderer? _interactRing;
         private CorpseRegistry? _registry;
+        private float _chunkCheckAccum;
 
         private float SecondsPassed { get; set; }
 
@@ -130,6 +131,13 @@ namespace PlayerCorpse.Entities
         {
             base.OnGameTick(dt);
 
+            _chunkCheckAccum += dt;
+            if (_chunkCheckAccum > 1f)
+            {
+                _chunkCheckAccum = 0f;
+                EnsureListedInChunk();
+            }
+
             float collectionTime = Core.CorpseCollectionTime(Api);
 
             if (LastInteractPassedMs > 300)
@@ -175,6 +183,50 @@ namespace PlayerCorpse.Entities
                     });
                 }
             }
+        }
+
+        /// <summary>
+        /// Selection raycasts and interaction lookups only see entities listed in a loaded chunk. The game lists an
+        /// entity in its chunk only when it is first received and silently skips that when the chunk is not present
+        /// yet, and a later re-send never lists it. Such a corpse is drawn but can never be clicked until a relog.
+        /// This puts the corpse back into its chunk's list whenever it is missing, on either side.
+        /// </summary>
+        private void EnsureListedInChunk()
+        {
+            IWorldChunk? chunk = Api.World.BlockAccessor.GetChunkAtBlockPos(Pos.AsBlockPos);
+            if (chunk == null)
+            {
+                return;
+            }
+
+            Entity[] entities = chunk.Entities;
+            int count = chunk.EntitiesCount;
+            for (int i = 0; i < entities.Length; i++)
+            {
+                Entity entity = entities[i];
+                if (entity == null)
+                {
+                    if (i >= count) break;
+                    continue;
+                }
+                if (entity == this)
+                {
+                    return;
+                }
+            }
+
+            IBlockAccessor accessor = Api.World.BlockAccessor;
+            long chunkIndex = MapUtil.Index3dL(
+                (int)Pos.X / GlobalConstants.ChunkSize,
+                (int)Pos.InternalY / GlobalConstants.ChunkSize,
+                (int)Pos.Z / GlobalConstants.ChunkSize,
+                accessor.MapSizeX / GlobalConstants.ChunkSize,
+                accessor.MapSizeZ / GlobalConstants.ChunkSize);
+
+            chunk.AddEntity(this);
+            InChunkIndex3d = chunkIndex;
+            ModLogger.Notification("{0} (id {1}) was missing from its chunk's entity list on the {2} side, re-listed it",
+                GetName(), EntityId, Api.Side);
         }
 
         private void ForceUpdateSecondsPassedOnServer()

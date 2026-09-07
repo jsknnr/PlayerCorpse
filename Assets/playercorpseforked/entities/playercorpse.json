@@ -3,9 +3,10 @@
   "class": "EntityPlayerCorpse",
   "habitat": "land",
   "hitboxSize": { "x": 0.9, "y": 0.3 },
+  "selectionBoxSize": { "x": 2.0, "y": 0.5 },
   "client": {
     "renderer": "Shape",
-    "shape": { "base": "game:block/bone/carcass/humanoid2" },
+    "shape": { "base": "game:block/bone/carcass/humanoid2", "offsetX": 0.46, "offsetZ": 0.05 },
     "behaviors": [
       { "code": "passivephysics" },
       { "code": "interpolateposition" },

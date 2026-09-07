@@ -1,3 +1,4 @@
+using PlayerCorpse.Entities;
 using PlayerCorpse.Systems;
 using System;
 using System.Collections.Generic;
@@ -54,6 +55,12 @@ namespace PlayerCorpse.Items
             base.OnHeldInteractStart(slot, byEntity, blockSel, entitySel, firstEvent, ref handling);
 
             if (handling != EnumHandHandling.NotHandled || slot.Itemstack == null)
+            {
+                return;
+            }
+
+            // Clicking a corpse with the compass in hand must collect the corpse, not search.
+            if (entitySel?.Entity is EntityPlayerCorpse)
             {
                 return;
             }
