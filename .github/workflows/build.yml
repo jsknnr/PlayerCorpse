@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:
 
+env:
+  BUILD_GAME_VERSION: "1.22.7"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,9 +33,13 @@ jobs:
       # VintagestoryLib.dll, Mods/VS*.dll, and Lib/*.dll — everything the csproj
       # references. If the URL pattern changes in a future VS release, update
       # the base URL here.
+      #
+      # BUILD_GAME_VERSION is the version we compile against. It is independent
+      # of the minimum version declared in modinfo.json (dependencies.game),
+      # which is what the zip name and the mod loader use.
       - name: Download Vintage Story API
         env:
-          GAME_VERSION: ${{ steps.meta.outputs.game_version }}
+          GAME_VERSION: ${{ env.BUILD_GAME_VERSION }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/vs"
