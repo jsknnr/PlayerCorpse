@@ -2,6 +2,6 @@ namespace PlayerCorpse
 {
     public static class Constants
     {
-        public static string ModId => "playercorpseforked";
+        public const string ModId = "playercorpseforked";
     }
 }

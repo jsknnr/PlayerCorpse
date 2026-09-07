@@ -1,9 +1,5 @@
-using CommonLib.Extensions;
-using CommonLib.Utils;
-using HarmonyLib;
 using PlayerCorpse.Entities;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -18,9 +14,12 @@ namespace PlayerCorpse.Systems
 {
     public class DeathContentManager : ModSystem
     {
+        // Entity id of the corpse created by the player's most recent death. Stored in the player
+        // entity's server-side Attributes, which are saved with the entity, so it survives
+        // disconnects and server restarts. Cleared on respawn or once a revive collected it.
+        private const string LastCorpseIdKey = Constants.ModId + ":lastCorpseId";
+
         private ICoreServerAPI _sapi = null!;
-        private readonly Dictionary<string, EntityPlayerCorpse> _pendingCorpses = new();
-        private Harmony? _harmony;
 
         public override bool ShouldLoad(EnumAppSide forSide) => forSide == EnumAppSide.Server;
 
@@ -29,28 +28,26 @@ namespace PlayerCorpse.Systems
             _sapi = api;
             api.Event.OnEntityDeath += OnEntityDeath;
             api.Event.PlayerRespawn += OnPlayerRespawn;
-
-            _harmony = new Harmony(Constants.ModId);
-            _harmony.PatchAll(typeof(EntityRevivePatch).Assembly);
-        }
-
-        public override void Dispose()
-        {
-            _harmony?.UnpatchAll(Constants.ModId);
-            base.Dispose();
         }
 
         private void OnEntityDeath(Entity entity, DamageSource damageSource)
         {
-            if (entity is EntityPlayer entityPlayer)
+            // Player can be null for a player entity whose owner already disconnected.
+            if (entity is EntityPlayer { Player: IServerPlayer serverPlayer })
             {
-                OnPlayerDeath((IServerPlayer)entityPlayer.Player);
+                OnPlayerDeath(serverPlayer);
             }
         }
 
         private void OnPlayerDeath(IServerPlayer byPlayer)
         {
-            bool isKeepContent = byPlayer.Entity?.Properties?.Server?.Attributes?.GetBool("keepContents") ?? false;
+            EntityPlayer? playerEntity = byPlayer.Entity;
+            if (playerEntity == null)
+            {
+                return;
+            }
+
+            bool isKeepContent = playerEntity.Properties?.Server?.Attributes?.GetBool("keepContents") ?? false;
             if (isKeepContent)
             {
                 return;
@@ -60,28 +57,34 @@ namespace PlayerCorpse.Systems
             try
             {
                 corpseEntity = CreateCorpseEntity(byPlayer);
-                if (corpseEntity.Inventory != null && !corpseEntity.Inventory.Empty)
+                if (corpseEntity.Inventory == null || corpseEntity.Inventory.Empty)
                 {
-                    // Save content for /returnthings (disk fallback if the server crashes
-                    // before the player respawns or is revived)
-                    if (Core.Config.MaxDeathContentSavedPerPlayer > 0)
-                    {
-                        SaveDeathContent(corpseEntity.Inventory, byPlayer);
-                    }
+                    ModUtil.LogCorpseEvent(_sapi, Mod.Logger,
+                        $"Inventory is empty, {corpseEntity.OwnerName}'s corpse not created");
+                    return;
+                }
 
-                    // Hold the corpse until the player either respawns (spawn it)
-                    // or is revived (return items). See OnPlayerRespawn / HandleRevive.
-                    _pendingCorpses[byPlayer.PlayerUID] = corpseEntity;
-                }
-                else
+                // Disk copy for /returnthings, in case the corpse is lost or looted.
+                if (Core.Config.MaxDeathContentSavedPerPlayer > 0)
                 {
-                    string message = $"Inventory is empty, {corpseEntity.OwnerName}'s corpse not created";
-                    Mod.Logger.Notification(message);
-                    if (Core.Config.DebugMode)
-                    {
-                        _sapi.BroadcastMessage(message);
-                    }
+                    SaveDeathContent(corpseEntity.Inventory, byPlayer);
                 }
+
+                if (!Core.Config.CreateCorpse)
+                {
+                    corpseEntity.Inventory.DropAll(corpseEntity.Pos.XYZ);
+                    return;
+                }
+
+                // Spawn right away so nothing is held only in memory while the player is dead.
+                _sapi.World.SpawnEntity(corpseEntity);
+                playerEntity.Attributes.SetLong(LastCorpseIdKey, corpseEntity.EntityId);
+
+                ModUtil.LogCorpseEvent(_sapi, Mod.Logger, string.Format(
+                    "Created {0} at {1}, id {2}",
+                    corpseEntity.GetName(),
+                    ModUtil.RelativeToSpawn(corpseEntity.Pos.XYZ, _sapi),
+                    corpseEntity.EntityId));
             }
             catch (Exception ex)
             {
@@ -122,90 +125,53 @@ namespace PlayerCorpse.Systems
 
         private void OnPlayerRespawn(IServerPlayer byPlayer)
         {
-            if (!_pendingCorpses.Remove(byPlayer.PlayerUID, out var corpseEntity)) return;
-
-            try
-            {
-                if (Core.Config.CreateCorpse)
-                {
-                    _sapi.World.SpawnEntity(corpseEntity);
-
-                    string message = string.Format(
-                        "Created {0} at {1}, id {2}",
-                        corpseEntity.GetName(),
-                        corpseEntity.Pos.XYZ.RelativePos(_sapi),
-                        corpseEntity.EntityId);
-
-                    Mod.Logger.Notification(message);
-                    if (Core.Config.DebugMode)
-                    {
-                        _sapi.BroadcastMessage(message);
-                    }
-                }
-                else
-                {
-                    corpseEntity.Inventory?.DropAll(corpseEntity.Pos.XYZ);
-                }
-            }
-            catch (Exception ex)
-            {
-                Mod.Logger.Error("Deferred corpse spawn failed for {0}: {1}", byPlayer.PlayerName, ex);
-                try { corpseEntity.Inventory?.DropAll(corpseEntity.Pos.XYZ); } catch { }
-            }
+            // The player chose to respawn, so the corpse stays where it is for them to collect.
+            byPlayer.Entity?.Attributes.RemoveAttribute(LastCorpseIdKey);
         }
 
+        /// <summary>
+        /// Called from <see cref="EntityBehaviorCorpseRevive"/> when a player entity is revived.
+        /// </summary>
         public void HandleRevive(EntityPlayer entityPlayer)
         {
             if (entityPlayer.Player is not IServerPlayer byPlayer) return;
-            if (!_pendingCorpses.ContainsKey(byPlayer.PlayerUID)) return;
 
-            // Respawn also invokes Entity.Revive(); PlayerRespawn fires immediately after.
-            // Defer so the respawn path (if any) can consume the pending entry first.
-            // If it's a true revive, the entry will still be there when the callback runs.
+            long corpseId = entityPlayer.Attributes.GetLong(LastCorpseIdKey, 0);
+            if (corpseId == 0) return;
+
+            // The vanilla respawn path fires PlayerRespawn first and calls Entity.Revive() later, once the
+            // player has been teleported. Defer anyway so a respawn that is still in flight can clear the
+            // stored id first; a true revive (another player healing the body) still finds it here.
             string playerUid = byPlayer.PlayerUID;
-            _sapi.World.RegisterCallback((_) => DoHandleRevive(playerUid), 50);
+            _sapi.World.RegisterCallback((_) => ReturnCorpseToRevivedPlayer(playerUid, corpseId), 50);
         }
 
-        private void DoHandleRevive(string playerUid)
+        private void ReturnCorpseToRevivedPlayer(string playerUid, long corpseId)
         {
-            if (!_pendingCorpses.Remove(playerUid, out var corpseEntity)) return;
-            if (corpseEntity.Inventory == null) return;
-
             var byPlayer = _sapi.World.PlayerByUid(playerUid) as IServerPlayer;
-            if (byPlayer?.Entity == null)
+            if (byPlayer?.Entity == null) return;
+
+            // A respawn in the meantime removed the id; leave the corpse in the world.
+            if (byPlayer.Entity.Attributes.GetLong(LastCorpseIdKey, 0) != corpseId) return;
+            byPlayer.Entity.Attributes.RemoveAttribute(LastCorpseIdKey);
+
+            if (_sapi.World.GetEntityById(corpseId) is not EntityPlayerCorpse corpse ||
+                !corpse.Alive ||
+                corpse.OwnerUID != playerUid)
             {
-                // Player disconnected between revive and the deferred handler — drop at corpse pos as fallback.
-                try { corpseEntity.Inventory.DropAll(corpseEntity.Pos.XYZ); } catch { }
+                Mod.Logger.Notification("{0} was revived but corpse id {1} is gone or not theirs, nothing returned",
+                    byPlayer.PlayerName, corpseId);
                 return;
             }
 
-            Vec3d dropPos = byPlayer.Entity.Pos.XYZ;
             try
             {
-                foreach (var slot in corpseEntity.Inventory)
-                {
-                    if (slot.Empty) continue;
-
-                    var dummy = new DummySlot(slot.Itemstack);
-                    var op = new ItemStackMoveOperation(
-                        byPlayer.Entity.World,
-                        EnumMouseButton.Left,
-                        0,
-                        EnumMergePriority.AutoMerge,
-                        slot.StackSize);
-
-                    byPlayer.InventoryManager.TryTransferAway(dummy, ref op, onlyPlayerInventory: true, slotNotifyEffect: false);
-
-                    if (dummy.StackSize > 0)
-                    {
-                        byPlayer.Entity.World.SpawnItemEntity(dummy.Itemstack, dropPos);
-                    }
-                }
+                corpse.Collect(byPlayer);
             }
             catch (Exception ex)
             {
-                Mod.Logger.Error("Revive item-return failed for {0}: {1}", byPlayer.PlayerName, ex);
-                try { corpseEntity.Inventory.DropAll(dropPos); } catch { }
+                Mod.Logger.Error("Returning corpse {0} to revived player {1} failed, corpse left in world: {2}",
+                    corpseId, byPlayer.PlayerName, ex);
             }
         }
 
@@ -231,7 +197,9 @@ namespace PlayerCorpse.Systems
             // Attempt to align the corpse to the center of the block so that it does not crawl higher
             Vec3d pos = floorPos.ToVec3d().Add(.5, 0, .5);
 
-            corpse.Pos.SetPos(pos);
+            // ToVec3d() encodes the dimension in Y, so the dimension-aware setter is required
+            // for deaths outside the default dimension.
+            corpse.Pos.SetPosWithDimension(pos);
             corpse.World = _sapi.World;
 
             return corpse;
@@ -326,17 +294,17 @@ namespace PlayerCorpse.Systems
             return slot.TakeOutWhole();
         }
 
-        public string GetDeathDataPath(IPlayer player)
+        public string GetDeathDataPath(string playerUid)
         {
-            ICoreAPI api = player.Entity.Api;
-            string uidFixed = Regex.Replace(player.PlayerUID, "[^0-9a-zA-Z]", "");
-            string localPath = Path.Combine("ModData", api.GetWorldId(), Mod.Info.ModID, uidFixed);
-            return api.GetOrCreateDataPath(localPath);
+            string uidFixed = Regex.Replace(playerUid, "[^0-9a-zA-Z]", "");
+            string localPath = Path.Combine("ModData", _sapi.World.SavegameIdentifier, Mod.Info.ModID, uidFixed);
+            return _sapi.GetOrCreateDataPath(localPath);
         }
 
-        public string[] GetDeathDataFiles(IPlayer player)
+        /// <summary>Saved death inventories for the player, newest first.</summary>
+        public string[] GetDeathDataFiles(string playerUid)
         {
-            string path = GetDeathDataPath(player);
+            string path = GetDeathDataPath(playerUid);
             return Directory
                 .GetFiles(path)
                 .OrderByDescending(f => new FileInfo(f).Name)
@@ -345,8 +313,8 @@ namespace PlayerCorpse.Systems
 
         public void SaveDeathContent(InventoryGeneric inventory, IPlayer player)
         {
-            string path = GetDeathDataPath(player);
-            string[] files = GetDeathDataFiles(player);
+            string path = GetDeathDataPath(player.PlayerUID);
+            string[] files = GetDeathDataFiles(player.PlayerUID);
 
             for (int i = files.Length - 1; i > Core.Config.MaxDeathContentSavedPerPlayer - 2; i--)
             {
@@ -356,23 +324,23 @@ namespace PlayerCorpse.Systems
             var tree = new TreeAttribute();
             inventory.ToTreeAttributes(tree);
 
-            string name = $"inventory-{DateTime.Now:yyyy-MM-dd-HH-mm-ss}.dat";
-            File.WriteAllBytes($"{path}/{name}", tree.ToBytes());
-        }
-
-        public InventoryGeneric LoadLastDeathContent(IPlayer player, int offset = 0)
-        {
-            if (Core.Config.MaxDeathContentSavedPerPlayer <= offset)
+            // Millisecond stamp plus a counter so rapid successive deaths never overwrite each other.
+            string stamp = DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss-fff");
+            string file = Path.Combine(path, $"inventory-{stamp}.dat");
+            for (int n = 1; File.Exists(file); n++)
             {
-                throw new IndexOutOfRangeException("offset is too large or save data disabled");
+                file = Path.Combine(path, $"inventory-{stamp}-{n}.dat");
             }
 
-            string file = GetDeathDataFiles(player).ElementAt(offset);
+            File.WriteAllBytes(file, tree.ToBytes());
+        }
 
+        public InventoryGeneric LoadDeathContent(string playerUid, string file)
+        {
             var tree = new TreeAttribute();
             tree.FromBytes(File.ReadAllBytes(file));
 
-            var inv = new InventoryGeneric(tree.GetInt("qslots"), $"{Constants.ModId}-{player.PlayerUID}", player.Entity.Api);
+            var inv = new InventoryGeneric(tree.GetInt("qslots"), $"{Constants.ModId}-{playerUid}", _sapi);
             inv.FromTreeAttributes(tree);
             return inv;
         }

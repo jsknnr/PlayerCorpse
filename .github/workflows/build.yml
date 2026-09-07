@@ -22,10 +22,8 @@ jobs:
         run: |
           MOD_VERSION=$(jq -r '.version' modinfo.json)
           GAME_VERSION=$(jq -r '.dependencies.game' modinfo.json)
-          COMMONLIB_VERSION=$(jq -r '.dependencies.commonlibforked' modinfo.json)
           echo "mod_version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
           echo "game_version=$GAME_VERSION" >> "$GITHUB_OUTPUT"
-          echo "commonlib_version=$COMMONLIB_VERSION" >> "$GITHUB_OUTPUT"
           echo "zip_name=PlayerCorpseForked_VS${GAME_VERSION}_net10_v${MOD_VERSION}.zip" >> "$GITHUB_OUTPUT"
 
       # VS ships a headless server tarball that includes VintagestoryAPI.dll,
@@ -43,24 +41,6 @@ jobs:
           curl -fsSL "$URL" | tar -xz -C "$HOME/vs"
           test -f "$HOME/vs/VintagestoryAPI.dll" || { echo "VintagestoryAPI.dll not found in extracted archive"; ls -la "$HOME/vs"; exit 1; }
           echo "VINTAGE_STORY=$HOME/vs" >> "$GITHUB_ENV"
-
-      # CommonLib is pulled from the jsknnr/CommonLib GitHub release matching
-      # the version declared in modinfo.json (dependencies.commonlib). The tag
-      # is assumed to be "v<version>" (e.g. commonlib 2.8.1 -> tag v2.8.1).
-      - name: Download CommonLib
-        env:
-          COMMONLIB_VERSION: ${{ steps.meta.outputs.commonlib_version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p lib
-          gh release download "v${COMMONLIB_VERSION}" \
-            --repo jsknnr/CommonLib \
-            --pattern 'CommonLibForked*.zip' \
-            --dir "$RUNNER_TEMP"
-          COMMONLIB_ZIP=$(ls "$RUNNER_TEMP"/CommonLibForked*.zip | head -n1)
-          unzip -p "$COMMONLIB_ZIP" CommonLib.dll > lib/CommonLib.dll
-          test -s lib/CommonLib.dll
 
       - name: Build
         run: dotnet build -c Release --nologo

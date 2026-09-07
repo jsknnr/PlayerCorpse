@@ -1,6 +1,5 @@
-using CommonLib.UI;
-using CommonLib.Utils;
 using PlayerCorpse.Systems;
+using PlayerCorpse.UI;
 using System;
 using System.IO;
 using System.Text;
@@ -15,9 +14,12 @@ namespace PlayerCorpse.Entities
 {
     public class EntityPlayerCorpse : EntityAgent
     {
+        private const int ForceCollectionTimePacketId = 141325;
+
         private ILogger? _modLogger;
         private long _lastInteractMs;
-        private HudCircleRenderer _interactRingRenderer = null!;
+        private HudCircleRenderer? _interactRing;
+        private CorpseRegistry? _registry;
 
         private float SecondsPassed { get; set; }
 
@@ -59,7 +61,7 @@ namespace PlayerCorpse.Entities
             get
             {
                 double hoursPassed = Api.World.Calendar.TotalHours - CreationTime;
-                int hoursForFree = Core.Config.FreeCorpseAfterTime;
+                int hoursForFree = Core.FreeCorpseAfterTime(Api);
 
                 bool alwaysFree = hoursForFree == 0;
                 bool neverFree = hoursForFree < 0;
@@ -84,11 +86,18 @@ namespace PlayerCorpse.Entities
 
             if (api is ICoreClientAPI capi)
             {
-                _interactRingRenderer = new HudCircleRenderer(capi, new HudCircleSettings
-                {
-                    Color = 0xFF9500
-                });
+                _interactRing = capi.ModLoader.GetModSystem<CorpseInteractHud>()?.Renderer;
             }
+            else
+            {
+                _registry = api.ModLoader.GetModSystem<CorpseRegistry>();
+            }
+        }
+
+        public override void OnEntitySpawn()
+        {
+            base.OnEntitySpawn();
+            _registry?.Register(this);
         }
 
         public override void OnEntityLoaded()
@@ -99,6 +108,7 @@ namespace PlayerCorpse.Entities
                 Inventory.Api = Api;
                 Inventory.ResolveBlocksOrItems();
             }
+            _registry?.Register(this);
         }
 
         public override bool ShouldReceiveDamage(DamageSource damageSource, float damage)
@@ -120,11 +130,13 @@ namespace PlayerCorpse.Entities
         {
             base.OnGameTick(dt);
 
+            float collectionTime = Core.CorpseCollectionTime(Api);
+
             if (LastInteractPassedMs > 300)
             {
-                if (SecondsPassed != 0 && Api.Side == EnumAppSide.Client)
+                if (SecondsPassed != 0 && _interactRing != null)
                 {
-                    _interactRingRenderer.CircleVisible = false;
+                    _interactRing.CircleVisible = false;
                 }
                 SecondsPassed = 0;
             }
@@ -133,8 +145,11 @@ namespace PlayerCorpse.Entities
                 SecondsPassed += dt;
                 if (Api.Side == EnumAppSide.Client)
                 {
-                    _interactRingRenderer.CircleProgress = SecondsPassed / Core.Config.CorpseCollectionTime;
-                    if (SecondsPassed > Core.Config.CorpseCollectionTime)
+                    if (_interactRing != null)
+                    {
+                        _interactRing.CircleProgress = SecondsPassed / collectionTime;
+                    }
+                    if (SecondsPassed > collectionTime)
                     {
                         ForceUpdateSecondsPassedOnServer();
                     }
@@ -156,7 +171,7 @@ namespace PlayerCorpse.Entities
                         MinQuantity = 1,
                         LifeLength = 1,
                         WithTerrainCollision = false,
-                        LightEmission = DarkColor.FromARGB(255, 255, 255, 255).RGBA
+                        LightEmission = ColorUtil.WhiteArgb
                     });
                 }
             }
@@ -166,7 +181,7 @@ namespace PlayerCorpse.Entities
         {
             if (Api is ICoreClientAPI capi)
             {
-                capi.Network.SendEntityPacket(EntityId, 141325, [(byte)SecondsPassed]);
+                capi.Network.SendEntityPacket(EntityId, ForceCollectionTimePacketId, [(byte)SecondsPassed]);
             }
         }
 
@@ -174,7 +189,7 @@ namespace PlayerCorpse.Entities
         {
             base.OnReceivedClientPacket(player, packetid, data);
 
-            if (packetid == 141325)
+            if (packetid == ForceCollectionTimePacketId)
             {
                 if (data?.Length > 0 && data[0] > SecondsPassed)
                 {
@@ -203,12 +218,13 @@ namespace PlayerCorpse.Entities
                         {
                             if (Inventory == null || Inventory.Count == 0)
                             {
-                                string format = "{0} at {1} is empty and will be removed immediately, id {3}";
-                                string msg = string.Format(format, GetName(), Pos.XYZ.RelativePos(Api), byPlayer.PlayerName, EntityId);
+                                string msg = string.Format(
+                                    "{0} at {1} is empty and will be removed immediately, id {2}",
+                                    GetName(), ModUtil.RelativeToSpawn(Pos.XYZ, Api), EntityId);
                                 ModLogger.Notification(msg);
                                 Die();
                             }
-                            else if (SecondsPassed > Core.Config.CorpseCollectionTime)
+                            else if (SecondsPassed > Core.CorpseCollectionTime(Api))
                             {
                                 Collect(byPlayer);
                             }
@@ -238,10 +254,15 @@ namespace PlayerCorpse.Entities
             return false;
         }
 
-        private void Collect(IPlayer byPlayer)
+        /// <summary>
+        /// Moves the contents into the player's inventory (overflow drops at their feet) and removes the corpse.
+        /// Server side only. Also used when the owner is revived at the death location.
+        /// </summary>
+        public void Collect(IPlayer byPlayer)
         {
             if (Inventory != null)
             {
+                Vec3d dropPos = byPlayer.Entity.Pos.XYZ.AddCopy(0, 1, 0);
                 foreach (var slot in Inventory)
                 {
                     if (slot.Empty)
@@ -249,9 +270,13 @@ namespace PlayerCorpse.Entities
                         continue;
                     }
 
-                    if (!byPlayer.InventoryManager.TryGiveItemstack(slot.Itemstack))
+                    // TryGiveItemstack reports success even when only part of the stack fit,
+                    // so always check what is left over and drop that on the ground.
+                    ItemStack stack = slot.Itemstack;
+                    byPlayer.InventoryManager.TryGiveItemstack(stack);
+                    if (stack.StackSize > 0)
                     {
-                        Api.World.SpawnItemEntity(slot.Itemstack, byPlayer.Entity.Pos.XYZ.AddCopy(0, 1, 0));
+                        Api.World.SpawnItemEntity(stack, dropPos);
                     }
                     slot.Itemstack = null;
                     slot.MarkDirty();
@@ -261,15 +286,11 @@ namespace PlayerCorpse.Entities
             string msg = string.Format(
                 "{0} at {1} can be collected by {2}, id {3}",
                 GetName(),
-                Pos.XYZ.RelativePos(Api),
+                ModUtil.RelativeToSpawn(Pos.XYZ, Api),
                 byPlayer.PlayerName,
                 EntityId);
 
-            ModLogger.Notification(msg);
-            if (Core.Config.DebugMode)
-            {
-                Api.BroadcastMessage(msg);
-            }
+            ModUtil.LogCorpseEvent(Api, ModLogger, msg);
 
             Die();
         }
@@ -285,25 +306,29 @@ namespace PlayerCorpse.Entities
             string msg = string.Format(
                 "{0} at {1} was destroyed, id {2}",
                 GetName(),
-                Pos.XYZ.RelativePos(Api),
+                ModUtil.RelativeToSpawn(Pos.XYZ, Api),
                 EntityId);
 
-            ModLogger.Notification(msg);
-            if (Core.Config.DebugMode)
-            {
-                Api.BroadcastMessage(msg);
-            }
+            ModUtil.LogCorpseEvent(Api, ModLogger, msg);
 
             base.Die(reason, damageSourceForDeath);
+            _registry?.Unregister(EntityId);
         }
 
         public override void OnEntityDespawn(EntityDespawnData despawn)
         {
             base.OnEntityDespawn(despawn);
 
-            if (Api.Side == EnumAppSide.Client)
+            if (_interactRing != null && SecondsPassed != 0)
             {
-                _interactRingRenderer.CircleVisible = false;
+                _interactRing.CircleVisible = false;
+            }
+
+            // Unload, out of range and disconnect keep the corpse in the world; everything else removes it.
+            if (_registry != null && despawn?.Reason is EnumDespawnReason.Death or EnumDespawnReason.Removed
+                or EnumDespawnReason.Expire or EnumDespawnReason.Combusted or EnumDespawnReason.PickedUp)
+            {
+                _registry.Unregister(EntityId);
             }
         }
 
