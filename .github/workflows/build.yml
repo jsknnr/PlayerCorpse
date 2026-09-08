@@ -26,7 +26,7 @@ jobs:
           MOD_VERSION=$(jq -r '.version' modinfo.json)
           echo "mod_version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
           echo "game_version=$BUILD_GAME_VERSION" >> "$GITHUB_OUTPUT"
-          echo "zip_name=PlayerCorpseForked_VS${GAME_VERSION}_net10_v${MOD_VERSION}.zip" >> "$GITHUB_OUTPUT"
+          echo "zip_name=PlayerCorpseForked_VS${BUILD_GAME_VERSION}_net10_v${MOD_VERSION}.zip" >> "$GITHUB_OUTPUT"
 
       # VS ships a headless server tarball that includes VintagestoryAPI.dll,
       # VintagestoryLib.dll, Mods/VS*.dll, and Lib/*.dll — everything the csproj
@@ -34,8 +34,7 @@ jobs:
       # the base URL here.
       #
       # BUILD_GAME_VERSION is the version we compile against. It is independent
-      # of the minimum version declared in modinfo.json (dependencies.game),
-      # which is what the zip name and the mod loader use.
+      # of the minimum version declared in modinfo.json (dependencies.game)
       - name: Download Vintage Story API
         run: |
           set -euo pipefail
