@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.2 (2026-09-07)
+
+- I released the wrong package on Vintage Story ModDB. This release is to fix Modinfo from requiring 1.22.7 when 1.22.0-7 os compatible. The only code change is incrementing to 1.15.2 so I can release the correct package on ModDB.
+
 ## 1.15.1 (2026-09-07)
 
 - Runs on Vintage Story 1.22.0 and newer again. 1.15.0 declared 1.22.7 as its minimum, which the code never actually needed.
